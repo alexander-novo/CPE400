@@ -1,0 +1,180 @@
+{
+	// The amount of energy needed for a node to transmit an observation to an adjacent node
+	"energyPerTransmit": 1,
+	// The list of nodes
+	"nodes": [
+		{
+			// Node 0 - original edge node
+			// Whether or not this node can directly transmit to the external gateway
+			"edge": true,
+			// The energy that this node starts with. Energy is consumed when transmitting observations,
+			// so edge nodes should start with more energy (since they have to transmit observations
+			// from other nodes to the external gateway)
+			"energy": 4000,
+			// The average number of observations this node produces per second
+			"observationRate": 5
+		},
+		{
+			// Node 1
+			"edge": false,
+			"energy": 1000,
+			"observationRate": 5
+		},
+		{
+			// Node 2
+			"edge": false,
+			"energy": 1000,
+			"observationRate": 5
+		},
+		{
+			// Node 3
+			"edge": false,
+			"energy": 1000,
+			"observationRate": 5
+		},
+		{
+			// Node 4
+			"edge": false,
+			"energy": 1000,
+			"observationRate": 5
+		},
+		{
+			// Node 5
+			"edge": false,
+			"energy": 1000,
+			"observationRate": 5
+		},
+		{
+			// Second edge node (node 6) - furthest away from the other edge
+			"edge": true,
+			"energy": 4000,
+			"observationRate": 5
+		},
+		{
+			// Node 7
+			"edge": false,
+			"energy": 1000,
+			"observationRate": 5
+		},
+		{
+			// Node 8
+			"edge": false,
+			"energy": 1000,
+			"observationRate": 5
+		},
+		{
+			// Node 9
+			"edge": false,
+			"energy": 1000,
+			"observationRate": 5
+		},
+		{
+			// Node 10
+			"edge": false,
+			"energy": 1000,
+			"observationRate": 5
+		},
+		{
+			// Node 11
+			"edge": false,
+			"energy": 1000,
+			"observationRate": 5
+		},
+		{
+			// Center node 1 (node 12)
+			"edge": false,
+			"energy": 1000,
+			"observationRate": 5
+		},
+		{
+			// Center node 2 (node 13)
+			"edge": false,
+			"energy": 1000,
+			"observationRate": 5
+		}
+	],
+	// List of links - each link is an array of node indices (starting at 0)
+	"links": [
+		// First a link around the perimeter
+		[
+			0,
+			1
+		],
+		[
+			1,
+			2
+		],
+		[
+			2,
+			3
+		],
+		[
+			3,
+			4
+		],
+		[
+			4,
+			5
+		],
+		[
+			5,
+			6
+		],
+		[
+			6,
+			7
+		],
+		[
+			7,
+			8
+		],
+		[
+			8,
+			9
+		],
+		[
+			9,
+			10
+		],
+		[
+			10,
+			11
+		],
+		[
+			11,
+			0
+		],
+		// Then alternating links to the center
+		// Every other node has no link to the center
+		// And every node with a link to the center alternates which center node it is connected to
+		[
+			12,
+			0
+		],
+		[
+			13,
+			2
+		],
+		[
+			12,
+			4
+		],
+		[
+			13,
+			6
+		],
+		[
+			12,
+			8
+		],
+		[
+			13,
+			10
+		],
+		// Finally, the two center nodes are connected
+		[
+			12,
+			13
+		]
+	]
+}

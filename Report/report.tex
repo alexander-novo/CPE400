@@ -1,0 +1,50 @@
+\documentclass[headings=optiontoheadandtoc,listof=totoc,parskip=full]{scrartcl}
+
+\usepackage[tbtags]{amsmath,mathtools}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{enumitem}
+\usepackage[margin=.75in]{geometry}
+\usepackage[headsepline]{scrlayer-scrpage}
+\usepackage[USenglish]{babel}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{physics}
+\usepackage[format=hang, justification=justified]{caption}
+\usepackage{xcolor}
+\usepackage{mathbbol}
+
+\usepackage{cleveref} % Needs to be loaded last
+
+\hypersetup{
+	linktoc = all,
+	pdfborder = {0 0 .5 [ 1 3 ]}
+}
+
+\def \reals {\mathbb{R}}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclarePairedDelimiter\floor{\lfloor}{\rfloor}
+
+\pagestyle{scrheadings}
+\rohead{Novotny}
+\lohead{CPE 400 Project}
+
+\title{Project}
+\subtitle{CPE 400\\\url{https://github.com/alexander-novo/CPE400}}
+\author{Alexander Novotny}
+% \date{Due: April 28, 2021 \\ Submitted: \today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\pagenumbering{gobble}
+
+\newpage
+\pagenumbering{arabic}
+
+%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+\end{document}
