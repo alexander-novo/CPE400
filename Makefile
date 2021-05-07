@@ -32,9 +32,26 @@ proj: $(OBJDIR)/src/main.o
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 ### Experiment Outputs ###
+out/ospf-normal.txt: proj config/config.jsonc | out
+	./proj ospf config/config.jsonc > $@
+
+out/ospf-larger.txt: proj config/config_larger.jsonc | out
+	./proj ospf config/config_larger.jsonc > $@
+
+out/ospf-pyramid.txt: proj config/config_pyramid.jsonc | out
+	./proj ospf config/config_pyramid.jsonc > $@
+
+out/ttl-normal.txt: proj config/config.jsonc | out
+	./proj ttl config/config.jsonc > $@
+
+out/ttl-larger.txt: proj config/config_larger.jsonc | out
+	./proj ttl config/config_larger.jsonc > $@
+
+out/ttl-pyramid.txt: proj config/config_pyramid.jsonc | out
+	./proj ttl config/config_pyramid.jsonc > $@
 
 # Figures needed for the report
-report:
+report: out/ospf-normal.txt out/ospf-larger.txt out/ospf-pyramid.txt out/ttl-normal.txt out/ttl-larger.txt out/ttl-pyramid.txt
 
 Report/report.pdf: Report/report.tex report
 	latexmk -pdf -cd -use-make -silent -pdflatex='pdflatex -interaction=batchmode -synctex=1' $<

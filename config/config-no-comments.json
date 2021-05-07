@@ -1,9 +1,16 @@
 {
+	// The amount of energy needed for a node to transmit an observation to an adjacent node
 	"energyPerTransmit": 1,
+	// The list of nodes
 	"nodes": [
 		{
+			// Whether or not this node can directly transmit to the external gateway
 			"edge": true,
+			// The energy that this node starts with. Energy is consumed when transmitting observations,
+			// so edge nodes should start with more energy (since they have to transmit observations
+			// from other nodes to the external gateway)
 			"energy": 4000,
+			// The average number of observations this node produces per second
 			"observationRate": 5
 		},
 		{
@@ -32,11 +39,13 @@
 			"observationRate": 5
 		},
 		{
+			// Center node (node 6)
 			"edge": false,
 			"energy": 1000,
 			"observationRate": 5
 		}
 	],
+	// List of links - each link is an array of node indices (starting at 0)
 	"links": [
 		[
 			0,

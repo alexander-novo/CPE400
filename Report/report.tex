@@ -1,3 +1,4 @@
+% !TEX options=--shell-escape
 \documentclass[headings=optiontoheadandtoc,listof=totoc,parskip=full]{scrartcl}
 
 \usepackage[tbtags]{amsmath,mathtools}
@@ -14,15 +15,39 @@
 \usepackage[format=hang, justification=justified]{caption}
 \usepackage{xcolor}
 \usepackage{mathbbol}
+\usepackage{tikz}
+\usepackage{tkz-euclide}
+\usepackage[newfloat]{minted}
 
 \usepackage{cleveref} % Needs to be loaded last
+
+\usetikzlibrary{positioning,intersections}
 
 \hypersetup{
 	linktoc = all,
 	pdfborder = {0 0 .5 [ 1 3 ]}
 }
 
+\newenvironment{longlisting}{\captionsetup{type=listing}}{}
+\SetupFloatingEnvironment{listing}{listname=Code Listings}
+
+\definecolor{lightgray}{gray}{0.95}
+\newmintedfile[json]{JSON-LD}{
+    tabsize=2,
+    bgcolor=lightgray,
+    frame=single,
+    breaklines,
+}
+\newmintedfile[outfile]{text}{
+    tabsize=2,
+    bgcolor=lightgray,
+    frame=single,
+    breaklines,
+}
+
 \def \reals {\mathbb{R}}
+\def \expect {\mathbb{E}}
+\newcommand{\cpp}{C\nolinebreak\hspace{-.05em}\raisebox{.4ex}{\tiny\bfseries +}\nolinebreak\hspace{-.10em}\raisebox{.4ex}{\tiny\bfseries +}}
 \DeclareMathOperator*{\argmax}{arg\,max}
 \DeclarePairedDelimiter\floor{\lfloor}{\rfloor}
 
@@ -30,7 +55,7 @@
 \rohead{Novotny}
 \lohead{CPE 400 Project}
 
-\title{Project}
+\title{Time To Live (TTL): A Dynamic Routing Algorithm For Sensor Networks}
 \subtitle{CPE 400\\\url{https://github.com/alexander-novo/CPE400}}
 \author{Alexander Novotny}
 % \date{Due: April 28, 2021 \\ Submitted: \today}
@@ -45,6 +70,293 @@
 
 %%%%%%%%%%%%%%%%%%%%%%
 
+\section{Motivation}
+Suppose you have a network of sensors. Each sensor is responsible for observing and reporting some data randomly with some average rate, but it might be expensive, unreliable, or otherwise infeasible to connect every sensor to an external gateway to record and/or process this data. Instead, a limited number of sensors (called `escape nodes') are given the capability to connect to an external gateway, and every other sensor must route through these escape nodes. As well, each sensor has a limited capability to send data due to something such as battery life, and the data from each sensor is only useable if all data from other sensors is up to date (so as soon as a packet is lost or can't be sent, all other packets are useless) - think of dual sensors used in tandem for object recognition on a car: if one sensor goes out, the other sensor's data is useless. In this situation, established routing algorithms like OSPF won't be able to effectively route packets due to their emphasis on link weights and broadcasting.
 
+\section{Time to Live Algorithm}
+The time to live algorithm relies on each node calculating its expected time to live (\texttt{TTL}). Since each node $n$ observes data randomly with some rate $\lambda_n$, this amount of time between observations is a random variable $X_n \sim Exp(\lambda_n)$ and the expected time between observations $\expect[X_n] = \frac{1}{\lambda_n}$. Then the expected time to live is
+\begin{equation} \label{eq:ttl1}
+    \mathtt{TTL}_n = \frac{e_n}{e_{obs}\lambda_n},
+\end{equation}
+where $e_n$ is the amount of energy that node $n$ currently has and $e_{obs}$ is the energy it takes to transmit a single observation packet. However, this only takes into account immediately transmitting through an external gateway - if a node is surrounded by low energy neighbors, then it won't be able to route its packet to an external gateway and its \texttt{TTL} should be similarly low. To account for this, we use a slightly modified metric
+\begin{equation} \label{eq:ttl2}
+    \mathtt{TTL}'_n = \begin{cases}
+        \infty, & n \text{ is an escape node}\\
+        \max_{i \in \mathcal A_n} \qty{\frac{e'_i}{e_{obs}(\lambda'_i + \lambda_n)}}, & \text{otherwise}
+    \end{cases},
+\end{equation}
+where $\mathcal A_n$ is the set of all adjacent nodes to $n$ (nodes which are 1 hop away), and $e'_i, \lambda'_i$ are the `limiting' energy and observation rate of node $i$ (more on these in a second). $\mathtt{TTL}'_n = \infty$ when $n$ is an escape node since it is adjacent to the external gateway, whose TTL is $\infty$. We can take the maximum over all neighbors because we can simply choose to route to the neighbor which gives us the highest TTL. A node's actual TTL is the minimum of \cref{eq:ttl1,eq:ttl2} - a node must be able to survive sending the observations it itself generates, but it almost must have somewhere to send it. In the case that $\mathtt{TTL}_n$ is the minimum, then the bound energy $e'_n = e_n$ and the bound rate $\lambda'_n = \lambda_n$ since node $n$'s time to live is `bound' by its own parameters. In the other case, where $\mathtt{TTL}'_n$ is the minimum, then $e'_n = e'_i$ and $\lambda'_n = \lambda'_i + \lambda_n$, since node $n$'s time to live is bound by the same parameters that bind its neighbor.
+
+Since the TTL for each escape node is bound by its own parameters (they never have to worry about having somewhere to send packets), we know that every other node's TTL is eventually bound by some node's parameters, and in the case where each node starts with the same amount of energy and has the same observation rate, every non-escape node's TTL is bound by the parameters of an escape node, decreasing based on the number of hops from the nearest escape node. In this way, the initial routing setup is the same as OSPF. To update it, each node simply keeps track of a sliding window of packets it has received from its neighbors and uses this window to update $\lambda_n$ to not only include the observations it itself is generating, but also those that it is receiving from its neighbors. Then it uses this new $\lambda_n$ to calculate its TTL as in \cref{eq:ttl1,eq:ttl2} and updates its neighbors.
+
+The energy needed to send TTL updates is considered negligible compared to the energy needed to transmit obervations (and in fact this can be enforced by `grouping' observations before transmitting), but our original motivation is to conserve energy, so TTL updates are not broadcast. Instead, when a node receives a packet and routes it to another node, it waits to receive a TTL update from the receiving node, calculates its own TTL (potentially changing which node it will start routing to), and then sends a TTL update to the original node. In this way, when a packet is sent, the only nodes which are updated are the nodes which the packet was routed through, rather than potentially the entire network. This concept is illustrated in \cref{fig:ttl-update}.
+
+\tikzset{
+    sensorNode/.style = {
+        draw,
+        circle,
+    },
+    position/.style args={#1:#2 from #3}{
+        at=(#3.#1), anchor=#1+180, shift=(#1:#2)
+    },
+    center coordinate/.style={
+        execute at end picture={
+            \path ([rotate around={180:#1}]perpendicular cs: horizontal line through={#1},
+                                  vertical line through={(current bounding box.east)})
+                ([rotate around={180:#1}]perpendicular cs: horizontal line through={#1},
+                                  vertical line through={(current bounding box.west)});
+        }
+    },
+}
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[center coordinate=(6)]
+        \node[sensorNode]                         (6) {6};
+        \node[sensorNode, position=  30:1 from 6] (0) {0};
+        \node[sensorNode, position=  90:1 from 6] (1) {1};
+        \node[sensorNode, position= 150:1 from 6] (2) {2};
+        \node[sensorNode, position=-150:1 from 6] (3) {3};
+        \node[sensorNode, position= -90:1 from 6] (4) {4};
+        \node[sensorNode, position= -30:1 from 6] (5) {5};
+
+        \node[position=30:1 from 0] (out) {};
+        \node[position=-50:1 from 3] (phantom) {};
+
+        \draw (0) to (1);
+        \draw (1) to (2);
+        \draw (2) to (3);
+        \draw (3) to (4);
+        \draw (4) to (5);
+        \draw (5) to (0);
+        \draw (0) to (6);
+        \draw (2) to (6);
+        \draw (4) to (6);
+        
+        \draw[blue,->] (0) to (out);
+
+        \draw[blue,->] (3) to[out=135,in=225] (2);
+        \draw[blue,->] (2) to[out=15,in=105] (6);
+        \draw[blue,->] (6) to[out=75,in=165] (0);
+        \draw[red,->] (0) to[out=255,in=-15] (6);
+        \draw[red,->] (6) to[out=195,in=-75] (2);
+        \draw[red,->] (2) to[out=315,in=45] (3);
+    \end{tikzpicture}
+    \caption{An example of an observation packet leaving the network (blue), followed by a TTL update (red). The observation was generated by node 3 and node 0 is the only escape node.}
+    \label{fig:ttl-update}
+\end{figure}
+
+\section{Implementation}
+
+\subsection{Simulator}
+Network configurations are kept in JSON files to be easily swapped out (see \cref{sec:config}). The simulator begins by loading the network configuration into memory. Then the routing algorithm is initialized by calculating all link weights and routing tables. Then, the amount of time until each node produces an observation is randomly generated (with a seed provided by the user for consistency between algorithms) using the \cpp{} \texttt{poisson\_distribution} library, according to the node's observation rate as defined in the network configuration. These times are stored in a priority queue implemented using a min heap with the \cpp{} heap helper functions in the \texttt{<algorithm>} library. We step through time by popping the next observation off the queue, routing it, and then generating a new observation event from the same node.
+
+\subsection{TTL Algorithm}
+When routing, we simply keep track of each node routed through in a stack to iterate through the same route in reverse. Then each node's TTL is calculated as in \cref{eq:ttl1,eq:ttl2} and it is propagated back through the routed nodes. The window for calculating $\lambda_n$ was chosen to be 2 seconds by experiment. As well, when updating the TTL for adjacent nodes, a ``falling off'' effect was used:
+\begin{equation}
+    \mathtt{TTL}_{n + 1} = \mathtt{TTL}_n - \beta^{\delta t}\Delta t,
+\end{equation}
+where $\mathtt{TTL}_n$ is an adjacent node's TTL and $\mathtt{TTL}_{n + 1}$ is the updated version (to account for the time that has passed since the adjacent node told us its TTL), $\Delta t$ is the amount of time that has passed since the node last updated its TTL tables, $\beta < 1$ is some bias, and $\delta t$ is the amount of time that has passed since the adjacent node told us its TTL. In this way, we avoid an issue where a node becomes popular and obtains a low TTL and every node avoids it forever because they think it will die soon. Instead, nodes will attempt to reach out to adjacent nodes that they have not contacted for a while. In our implementation, $\beta = .995$ was chosen exprimentally.
+
+\section{Results}
+
+A comparison of the algorithms using the simple network shown in the assignment can be found in \cref{lst:simple-ospf,lst:simple-ttl}. Note the the 50\% increase in uptime - this is largely due to the nodes surrounding the escape node (nodes 1, 5, and 6) being more evenly utilized in the TTL algorithm.
+
+\begin{listing}[H]
+    \caption{Output of the simulation after using OSPF on the network in \cref{fig:network-simple}.}
+    \label{lst:simple-ospf}
+    \outfile{../out/ospf-normal.txt}
+\end{listing}
+
+\begin{listing}[H]
+    \caption{Output of the simulation after using TTL on the network in \cref{fig:network-simple}.}
+    \label{lst:simple-ttl}
+    \outfile{../out/ttl-normal.txt}
+\end{listing}
+
+Another comparison can be found in \cref{lst:larger-ospf,lst:larger-ttl}, this time with the larger network with 2 escape nodes depicted in \cref{fig:network-complex}. Once again, we notice an almost 50\% increase in uptime and much more even energy utilization.
+
+\begin{listing}[H]
+    \caption{Output of the simulation after using OSPF on the network in \cref{fig:network-complex}.}
+    \label{lst:larger-ospf}
+    \outfile{../out/ospf-larger.txt}
+\end{listing}
+
+\begin{listing}[H]
+    \caption{Output of the simulation after using TTL on the network in \cref{fig:network-complex}.}
+    \label{lst:larger-ttl}
+    \outfile{../out/ttl-larger.txt}
+\end{listing}
+
+A final comparison can be found in \cref{lst:larger-ospf,lst:larger-ttl}, this time with a network with many links and 3 escapde nodes. There is still a 50\% increase in uptime and much more even energy utilization in the TTL algorithm's results than OSPF, leading to a conclusion of a succesful implementation.
+
+\begin{listing}[H]
+    \caption{Output of the simulation after using OSPF on the network in \cref{fig:network-triangle}.}
+    \label{lst:pyramid-ospf}
+    \outfile{../out/ospf-pyramid.txt}
+\end{listing}
+
+\begin{listing}[H]
+    \caption{Output of the simulation after using TTL on the network in \cref{fig:network-triangle}.}
+    \label{lst:pyramid-ttl}
+    \outfile{../out/ttl-pyramid.txt}
+\end{listing}
+
+\appendix
+\section{Network Diagrams}
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[center coordinate=(6)]
+        \node[sensorNode]                         (6) {6};
+        \node[sensorNode, position=  30:1 from 6] (0) {0};
+        \node[sensorNode, position=  90:1 from 6] (1) {1};
+        \node[sensorNode, position= 150:1 from 6] (2) {2};
+        \node[sensorNode, position=-150:1 from 6] (3) {3};
+        \node[sensorNode, position= -90:1 from 6] (4) {4};
+        \node[sensorNode, position= -30:1 from 6] (5) {5};
+
+        \node[position=30:1 from 0] (out) {};
+        \node[position=-50:1 from 3] (phantom) {};
+
+        \draw[<-] (0) to (1);
+        \draw[<-] (1) to (2);
+        \draw[<-] (2) to (3);
+        \draw[-] (3) to (4);
+        \draw[->] (4) to (5);
+        \draw[->] (5) to (0);
+        \draw[<-] (0) to (6);
+        \draw[-] (2) to (6);
+        \draw[-] (4) to (6);
+        \draw[->] (0) to (out);
+    \end{tikzpicture}
+    \caption{A simple example of a sensor network with one escape node. OSPF-chosen links are marked with arrow heads.}
+    \label{fig:network-simple}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}
+        \node (center) {};
+        \node[sensorNode, position=  30:2 from center] (0) {0};
+        \node[sensorNode, position=  60:2 from center] (1) {1};
+        \node[sensorNode, position= 90:2 from center] (2) {2};
+        \node[sensorNode, position= 120:2 from center] (3) {3};
+        \node[sensorNode, position= 150:2 from center] (4) {4};
+        \node[sensorNode, position= 180:2 from center] (5) {5};
+        \node[sensorNode, position=-150:2 from center] (6) {6};
+        \node[sensorNode, position=-120:2 from center] (7) {7};
+        \node[sensorNode, position= -90:2 from center] (8) {8};
+        \node[sensorNode, position= -60:2 from center] (9) {9};
+        \node[sensorNode, position= -30:2 from center] (10) {10};
+        \node[sensorNode, position=   0:2 from center] (11) {11};
+
+        \node[sensorNode, position=  0:.1 from center]                         (12) {12};
+        \node[sensorNode, position=  180:.1 from center]                         (13) {13};
+
+        \node[position=30:1 from 0] (out1) {};
+        \node[position=-150:1 from 6] (out2) {};
+
+        \draw[<-] (0) to (1);
+        \draw[<-] (1) to (2);
+        \draw[<-] (2) to (3);
+        \draw[-] (3) to (4);
+        \draw[->] (4) to (5);
+        \draw[->] (5) to (6);
+        \draw[<-] (6) to (7);
+        \draw[<-] (7) to (8);
+        \draw[<-] (8) to (9);
+        \draw[-] (9) to (10);
+        \draw[->] (10) to (11);
+        \draw[->] (11) to (0);
+
+        \draw (12) -- (13);
+
+        \draw[<-] (0) to (12);
+        \path[name path = path412] (4) to (12);
+        \path[name path = path812] (8) to (12);
+        \draw[-,name path = path213] (2) to (13);
+        \draw[<-] (6) to (13);
+        \draw[-,name path = path1013] (10) to (13);
+
+        \path [name intersections={of = path412 and path213}];
+        \coordinate (S1)  at (intersection-1);
+        \path [name intersections={of = path812 and path1013}];
+        \coordinate (S2)  at (intersection-1);
+
+
+        \path[name path=circle1] (S1) circle(1mm);
+        \path[name path=circle2] (S2) circle(1mm);
+
+        \path [name intersections={of = circle1 and path412}];
+        \coordinate (I11)  at (intersection-1);
+        \coordinate (I12)  at (intersection-2);
+        \path [name intersections={of = circle2 and path812}];
+        \coordinate (I21)  at (intersection-1);
+        \coordinate (I22)  at (intersection-2);
+
+        \draw (4) -- (I11);
+        \draw[-] (I12) -- (12);
+        \draw (8) -- (I22);
+        \draw[-] (I21) -- (12);
+
+        \tkzDrawArc[color=black](S1,I12)(I11);
+        \tkzDrawArc[color=black](S2,I21)(I22);
+
+        \draw[->] (0) to (out1);
+        \draw[->] (6) to (out2);
+    \end{tikzpicture}
+    \caption{A more complex, but similar, example of a sensor network with 2 escape nodes. OSPF-chosen links are marked with arrow heads.}
+    \label{fig:network-complex}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        node distance=.5cm,
+    ]
+        \node[sensorNode]                   (0) {0};
+        \node[sensorNode, below left =of 0] (1) {1};
+        \node[sensorNode, below right=of 0] (2) {2};
+        \node[sensorNode, below left =of 1] (3) {3};
+        \node[sensorNode, below right=of 1] (4) {4};
+        \node[sensorNode, below right=of 2] (5) {5};
+        \node[sensorNode, below left =of 3] (6) {6};
+        \node[sensorNode, below right=of 3] (7) {7};
+        \node[sensorNode, below left =of 5] (8) {8};
+        \node[sensorNode, below right=of 5] (9) {9};
+        \node[sensorNode, below left =of 6] (10) {10};
+        \node[sensorNode, below right=of 6] (11) {11};
+        \node[sensorNode, below left =of 8] (12) {12};
+        \node[sensorNode, below right=of 8] (13) {13};
+        \node[sensorNode, below right=of 9] (14) {14};
+
+        \node[above      =of 0 ] (out1) {};
+        \node[below left =of 10] (out2) {};
+        \node[below right=of 14] (out3) {};
+
+        \draw[<-] (0) edge (1) edge (2) edge[->] (out1);
+        \draw[<-] (10) edge (6) edge (11) edge[->] (out2);
+        \draw[<-] (14) edge (9) edge (13) edge[->] (out3);
+        \draw (4) edge[->] (1) edge (2) edge (3) edge (5) edge (7) edge (8);
+        \draw (7) edge (3) edge[->] (6) edge (8) edge (11) edge (12);
+        \draw (8) edge (5) edge[->] (9) edge (12) edge (13);
+        \draw (3) edge[->] (1) edge (6);
+        \draw (5) edge[->] (2) edge (9);
+        \draw (12) edge[->] (11) edge (13);
+    \end{tikzpicture}
+    \caption{A large network with 3 escape nodes and many links. OSPF-chosen links are marked with arrow heads.}
+    \label{fig:network-triangle}
+\end{figure}
+
+\section{Configuration}
+\label{sec:config}
+
+You can make your own sensor networks by simply providing a network configuration file. An example is given in \cref{lst:config}. Each network has a set of nodes (with energy values, observation rates, and whether or not it is an escape node) and a set of links. You can also define how much energy is used per transmitted observation.
+
+\begin{longlisting}
+    \caption{Configuration file for generating the network depicted in \cref{fig:network-simple}.}
+    \label{lst:config}
+    \json{../config/config.jsonc}
+\end{longlisting}
 
 \end{document}

@@ -4,8 +4,10 @@ int main(int argc, char** argv) {
 	int err;
 	Arguments arg;
 
+	// Read in command line arguments
 	if (!verifyArguments(argc, argv, arg, err)) { return err; }
 
+	// Read in network configuration
 	Configuration config;
 	try {
 		extractConfig(arg.config, arg, config);
@@ -14,6 +16,7 @@ int main(int argc, char** argv) {
 		return 2;
 	}
 
+	// Complete sim depending on algorithm chosen
 	Output out;
 	switch (arg.alg) {
 		case Algorithm::OSPF:
@@ -24,6 +27,7 @@ int main(int argc, char** argv) {
 			break;
 	}
 
+	// Output results
 	std::cout << "Collected " << out.escapedObservations << " observations in " << out.time << "s. Stopped after node "
 	          << out.lastObservationNodeIndex << " made an observation and attempted to route through node "
 	          << out.lastRouterNodeIndex << ", which did not have enough energy to route it.\n";
@@ -40,6 +44,8 @@ int main(int argc, char** argv) {
 
 void simOSPF(const Arguments& arg, Configuration& config, Output& out) {
 	if (arg.verbose) std::cout << "Edges: ";
+	// Start by filling out routing tables - beginning from each edge / escape node, since they have a minimum weight
+	// link (going to the external gateway)
 	for (unsigned edgeIndex : config.edges) {
 		std::priority_queue<std::tuple<unsigned, unsigned, unsigned>> queue;
 		Node& edge = config.nodes[edgeIndex];
@@ -64,11 +70,13 @@ void simOSPF(const Arguments& arg, Configuration& config, Output& out) {
 	}
 	if (arg.verbose) std::cout << '\n';
 
+	// Calculate the shortest path - the connection with the lowest weight - from each node
 	for (Node& node : config.nodes) {
 		node.shortestLink = std::distance(
 		    node.links.begin(), std::max_element(node.links.begin(), node.links.end(), std::greater<Connection>()));
 	}
 
+	// Print out connection status if verbose mode was turned on
 	if (arg.verbose) {
 		std::cout << "Connections:\n  Nodes      Weights\n";
 		for (unsigned i = 0; i < config.nodes.size(); i++) {
@@ -92,11 +100,13 @@ void simOSPF(const Arguments& arg, Configuration& config, Output& out) {
 	std::vector<std::pair<double, unsigned>> observationEvents;
 	std::mt19937 gen(arg.seed);
 
+	// Setup initial observations
 	for (unsigned i = 0; i < config.nodes.size(); i++) {
 		Node& node = config.nodes[i];
 		observationEvents.emplace_back(node.dist(gen), i);
 	}
 
+	// Make min heap so that the next observation is always in the front
 	std::make_heap(observationEvents.begin(), observationEvents.end(), std::greater<std::pair<double, unsigned>>());
 
 	if (arg.verbose) {
@@ -107,22 +117,27 @@ void simOSPF(const Arguments& arg, Configuration& config, Output& out) {
 		}
 	}
 
+	// Start simulation
 	out.time                = 0;
 	out.escapedObservations = 0;
 	while (true) {
+		// Get next observation event, maintain heap
 		std::pair<double, unsigned> observation = observationEvents.front();
 		Node& observingNode                     = config.nodes[observation.second];
 		std::pop_heap(observationEvents.begin(), observationEvents.end(), std::greater<std::pair<double, unsigned>>());
 
+		// Step through time
 		double deltaT = observation.first;
 		out.time += deltaT;
 		std::for_each(observationEvents.begin(), observationEvents.end(),
 		              [deltaT](std::pair<double, unsigned>& observation) { observation.first -= deltaT; });
 
+		// Add next observation event for this node
 		observationEvents.back() = {observingNode.dist(gen), observation.second};
 		std::push_heap(observationEvents.begin(), observationEvents.end(), std::greater<std::pair<double, unsigned>>());
 		observingNode.observationsMade++;
 
+		// Route
 		unsigned currentNodeIndex = observation.second;
 		while (!config.nodes[currentNodeIndex].edgeNode &&
 		       config.nodes[currentNodeIndex].energy >= config.energyPerTransmit) {
@@ -132,6 +147,8 @@ void simOSPF(const Arguments& arg, Configuration& config, Output& out) {
 			currentNodeIndex = currentNode.links[currentNode.shortestLink].nodeIndex;
 		}
 
+		// If we were able to route to an edge node, we collected the data.
+		// Otherwise, stop simulation
 		Node& lastNode = config.nodes[currentNodeIndex];
 		if (lastNode.edgeNode && lastNode.energy >= config.energyPerTransmit) {
 			lastNode.energy -= config.energyPerTransmit;
@@ -146,6 +163,8 @@ void simOSPF(const Arguments& arg, Configuration& config, Output& out) {
 
 void simTTL(const Arguments& arg, Configuration& config, Output& out) {
 	if (arg.verbose) std::cout << "Edges: ";
+	// Start by filling out routing tables - beginning from each edge / escape node, since their TTL will always depend
+	// only on their own parameters (they have an infinite TTL neighbor - the gateway).
 	for (unsigned edgeIndex : config.edges) {
 		std::priority_queue<std::tuple<double, double, unsigned, unsigned>> queue;
 		Node& edge = config.nodes[edgeIndex];
@@ -161,6 +180,7 @@ void simTTL(const Arguments& arg, Configuration& config, Output& out) {
 
 			queue.pop();
 
+			// TTL and TTL' (see paper)
 			double ttl1 = energy / config.energyPerTransmit / (observationRate + node.observationRate);
 			double ttl2 = node.energy / config.energyPerTransmit / node.observationRate;
 			double ttl  = std::min(ttl1, ttl2);
@@ -168,6 +188,7 @@ void simTTL(const Arguments& arg, Configuration& config, Output& out) {
 			Connection& con = node.links[connectionIndex];
 			if (con.weight >= ttl) { continue; }
 
+			// otherEnergy = e' and otherRate = lambda' (see paper)
 			con.weight      = ttl;
 			con.otherEnergy = energy;
 			con.otherRate   = observationRate;
@@ -186,10 +207,12 @@ void simTTL(const Arguments& arg, Configuration& config, Output& out) {
 	}
 	if (arg.verbose) std::cout << '\n';
 
+	// Fill out routing tables, picking the neighbor with the highest TTL
 	for (Node& node : config.nodes) {
 		node.shortestLink = std::distance(node.links.begin(), std::max_element(node.links.begin(), node.links.end()));
 	}
 
+	// Print connection information if verbose. Note - routing table should be identical to OSPF at this point
 	if (arg.verbose) {
 		std::cout << "Connections:\n  Nodes      Weights\n";
 		for (unsigned i = 0; i < config.nodes.size(); i++) {
@@ -210,6 +233,7 @@ void simTTL(const Arguments& arg, Configuration& config, Output& out) {
 		}
 	}
 
+	// generate initial observation events
 	std::vector<std::pair<double, unsigned>> observationEvents;
 	std::mt19937 gen(arg.seed);
 
@@ -218,6 +242,7 @@ void simTTL(const Arguments& arg, Configuration& config, Output& out) {
 		observationEvents.emplace_back(node.dist(gen), i);
 	}
 
+	// Make min heap
 	std::make_heap(observationEvents.begin(), observationEvents.end(), std::greater<std::pair<double, unsigned>>());
 
 	if (arg.verbose) {
@@ -228,22 +253,27 @@ void simTTL(const Arguments& arg, Configuration& config, Output& out) {
 		}
 	}
 
+	// Start simulation
 	out.time                = 0;
 	out.escapedObservations = 0;
 	while (true) {
+		// Get next observation event, maintain heap
 		std::pair<double, unsigned> observation = observationEvents.front();
 		Node& observingNode                     = config.nodes[observation.second];
 		std::pop_heap(observationEvents.begin(), observationEvents.end(), std::greater<std::pair<double, unsigned>>());
 
+		// Step through time - this is big delta t (see paper)
 		double deltaT = observation.first;
 		out.time += deltaT;
 		std::for_each(observationEvents.begin(), observationEvents.end(),
 		              [deltaT](std::pair<double, unsigned>& observation) { observation.first -= deltaT; });
 
+		// Generate new observation event from this node
 		observationEvents.back() = {observingNode.dist(gen), observation.second};
 		std::push_heap(observationEvents.begin(), observationEvents.end(), std::greater<std::pair<double, unsigned>>());
 		observingNode.observationsMade++;
 
+		// Route - keep track of the path we routed through to update TTL
 		unsigned currentNodeIndex = observation.second;
 		std::stack<unsigned> routedPath;
 		while (!config.nodes[currentNodeIndex].edgeNode &&
@@ -254,6 +284,7 @@ void simTTL(const Arguments& arg, Configuration& config, Output& out) {
 			routedPath.push(currentNodeIndex);
 			currentNodeIndex = currentNode.links[currentNode.shortestLink].nodeIndex;
 
+			// This is little delta t (see paper)
 			double deltaTSinceLastRoute =
 			    config.nodes[currentNodeIndex].routedObservations.size() > 0 ?
                     out.time - config.nodes[currentNodeIndex].routedObservations.back().first :
@@ -262,6 +293,7 @@ void simTTL(const Arguments& arg, Configuration& config, Output& out) {
 			config.nodes[currentNodeIndex].routedObservations.emplace_back(out.time, deltaTSinceLastRoute);
 		}
 
+		// If we made it to an edge node - we collected an observation and need to update TTL
 		Node& lastNode = config.nodes[currentNodeIndex];
 		if (lastNode.edgeNode && lastNode.energy >= config.energyPerTransmit) {
 			lastNode.energy -= config.energyPerTransmit;
@@ -270,12 +302,14 @@ void simTTL(const Arguments& arg, Configuration& config, Output& out) {
 			double lastEnergy;
 			double lastRate;
 
+			// Go back through path and update TTL in reverse order
 			while (!routedPath.empty()) {
 				Node& currentNode = config.nodes[currentNodeIndex];
 				currentNodeIndex  = routedPath.top();
 				routedPath.pop();
 				Node& prevNode = config.nodes[currentNodeIndex];
 
+				// This is updating lambda based on the window
 				double perceivedRouteReceiveRate =
 				    std::distance(
 				        currentNode.routedObservations.crbegin(),
@@ -284,6 +318,7 @@ void simTTL(const Arguments& arg, Configuration& config, Output& out) {
 				            [&out](const std::pair<double, int>& obs) { return out.time - obs.first < TTL_WINDOW; })) /
 				    std::min(out.time, TTL_WINDOW);
 
+				// TTL and TTL' (see paper)
 				double ttl1 = currentNode.energy / config.energyPerTransmit /
 				              (perceivedRouteReceiveRate + currentNode.observationRate);
 				double ttl2 = currentNode.edgeNode ?
@@ -291,14 +326,17 @@ void simTTL(const Arguments& arg, Configuration& config, Output& out) {
                                   lastEnergy / config.energyPerTransmit /
 				                      (perceivedRouteReceiveRate + currentNode.observationRate + lastRate);
 
+				// Small delta t again
 				double deltaTSinceLastRoute = currentNode.routedObservations.back().second;
 
+				// Updating old TTL information from neighbors, using bias (see paper)
 				std::for_each(
 				    prevNode.links.begin(), prevNode.links.end(), [deltaTSinceLastRoute, &out](Connection& con) {
 					    con.weight -= std::min(
 					        con.weight, pow(TTL_BIAS, out.time - con.lastTimeWeightUpdated) * deltaTSinceLastRoute);
 				    });
 
+				// Updating routing table
 				prevNode.links[prevNode.shortestLink].weight                = std::min(ttl1, ttl2);
 				prevNode.links[prevNode.shortestLink].lastTimeWeightUpdated = out.time;
 				prevNode.shortestLink                                       = std::distance(prevNode.links.begin(),
@@ -312,6 +350,7 @@ void simTTL(const Arguments& arg, Configuration& config, Output& out) {
 				               (perceivedRouteReceiveRate + currentNode.observationRate +
 				                prevNode.links[prevNode.shortestLink].otherRate);
 
+				// Propagation information e' and lambda'
 				if (ttl1 < ttl2) {
 					lastEnergy = currentNode.energy;
 					lastRate   = perceivedRouteReceiveRate + currentNode.observationRate;
@@ -328,6 +367,7 @@ void simTTL(const Arguments& arg, Configuration& config, Output& out) {
 		}
 	}
 
+	// Final state information for debugging.
 	if (arg.verbose) {
 		std::cout << "Final Weights:\n  Nodes      Weights\n";
 		for (unsigned i = 0; i < config.nodes.size(); i++) {
